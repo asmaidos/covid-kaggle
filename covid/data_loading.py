@@ -350,7 +350,7 @@ def extract_scibert(text, tokenizer, model):
 
     n_chunks = int(numpy.ceil(float(text_ids.size(1))/510))
     states = []
-    
+    class_states = []
     for ci in range(n_chunks):
         text_ids_ = text_ids[0, 1+ci*510:1+(ci+1)*510]            
         text_ids_ = torch.cat([text_ids[0, 0].unsqueeze(0), text_ids_])
@@ -359,11 +359,16 @@ def extract_scibert(text, tokenizer, model):
         
         with torch.no_grad():
             state = model(text_ids_.unsqueeze(0))[0]
+
             state = state[:, 1:-1, :]
+            class_state = state[:, 0, :]
         states.append(state)
+        class_states.append(class_state)
 
     state = torch.cat(states, axis=1)
-    return text_ids, text_words, state[0]
+    class_state = torch.cat(class_states, axis=1)
+
+    return text_ids, text_words, state[0], class_state[0]
 
 
 tokenizer = AutoTokenizer.from_pretrained('monologg/biobert_v1.1_pubmed', do_lower_case=False)
@@ -372,10 +377,21 @@ model = AutoModel.from_pretrained('monologg/biobert_v1.1_pubmed')
 # tokenizer = AutoTokenizer.from_pretrained("bert-large-cased")
 # model = AutoModelWithLMHead.from_pretrained("bert-large-cased")
 
+# tokenizer = AutoTokenizer.from_pretrained("bert-large-cased")
+# model = AutoModelWithLMHead.from_pretrained("bert-large-cased")
+
+
+tokenizer = AutoTokenizer.from_pretrained("distilbert-base-cased")
+model = AutoModelWithLMHead.from_pretrained("distilbert-base-cased")
+
+tokenizer = AutoTokenizer.from_pretrained("albert-xxlarge-v1")
+model = AutoModelWithLMHead.from_pretrained("albert-xxlarge-v1")
+
+
+tokenizer = AutoTokenizer.from_pretrained("albert-large-v1")
+model = AutoModelWithLMHead.from_pretrained("albert-large-v1")
+
 def cross_match(state1, state2):
-    # state1 = state1 / torch.sqrt((state1 ** 2).sum(1, keepdims=True))
-    # state2 = state2 / torch.sqrt((state2 ** 2).sum(1, keepdims=True))
-    # sim = (state1.unsqueeze(1) * state2.unsqueeze(0)).sum(-1)
 
     sim = torch.cosine_similarity(torch.mean(state, 0), torch.mean(query_state, 0), dim=0)
     sim = sim.numpy()
@@ -383,7 +399,7 @@ def cross_match(state1, state2):
 
 t = time()
 flat_query = ''.join(quest_text)
-query_ids, query_words, query_state = extract_scibert(flat_query, tokenizer, model)
+query_ids, query_words, query_state, query_class_state = extract_scibert(flat_query, tokenizer, model)
 print((time()-t)*1000)
 print(len(query_words))
 # print(query_state)
@@ -392,9 +408,10 @@ print(len(query_words))
 ans_red = ans.dropna()
 sim_scores = []
 
-for text in tqdm(ans_red['abstract']):
-    text_ids, text_words, state = extract_scibert(text, tokenizer, model)
-    sim_score = cross_match(query_state, state)
+for text in tqdm(ans_red['title']):
+    text_ids, text_words, state, class_state = extract_scibert(text, tokenizer, model)
+    # sim_score = cross_match(query_state, state)
+    sim_score = cross_match(query_class_state, class_state) # try cosine on CLS tokens
     sim_scores.append(sim_score)
 
 # t = time()
